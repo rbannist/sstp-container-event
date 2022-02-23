@@ -132,7 +132,7 @@ serialPipeline:
  stages:
  - targetId: qsdev
    profiles: []
- - targetId: qsprod
+ - targetId: qspreprod
    profiles: []
  - targetId: qsprod
    profiles: []
