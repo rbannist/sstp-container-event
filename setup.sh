@@ -1,4 +1,4 @@
-bin/bash!
+#!/usr/bin/env bash
 export REGION=us-central1
 export ZONE=us-central1-a
 export PROJECT_NAME=$(gcloud config get-value project)
