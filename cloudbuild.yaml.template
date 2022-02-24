@@ -19,6 +19,7 @@ steps:
 # build the container image
 - name: "gcr.io/cloud-builders/docker"
   args: ["build", "-t", "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}", "."]
+
 # push container image
 - name: "gcr.io/cloud-builders/docker"
   args: ["push", "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}"]
@@ -31,17 +32,7 @@ steps:
        gke-deploy prepare --filename k8s-pod.yaml --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA} --version ${SHORT_SHA}
        cp output/expanded/aggregated-resources.yaml k8s-pod.yaml
 
-# attest the built container
-- name: "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/binauthz-attestation:latest"
-  args:
-  - '--artifact-url'
-  - '$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}'
-  - '--attestor'
-  - 'projects/$PROJECT_ID/attestors/$ATTESTOR_NAME'
-  - '--keyversion'
-  - 'projects/$PROJECT_ID/locations/global/keyRings/$KMS_KEYRING_NAME/cryptoKeys/$KMS_KEY_NAME/cryptoKeyVersions/$KMS_KEY_VERSION' 
- 
-  # deploy container image to GKE
+# deploy container image to GKE
 - name: "gcr.io/cloud-builders/gcloud"
   entrypoint: 'bash'
   args:
@@ -49,3 +40,8 @@ steps:
   - |
        gcloud beta deploy apply --file clouddeploy.yaml --region=$REGION --project=$PROJECT_ID
        gcloud beta deploy releases create nginx-release-${SHORT_SHA} --project=$PROJECT_ID --region=$REGION --delivery-pipeline=my-nginx-app-1
+
+images:
+- “$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}”
+options:
+  requestedVerifyOption: VERIFIED
