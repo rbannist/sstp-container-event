@@ -7,18 +7,7 @@ This is a basic overview demo showing deploying a static website to GKE and expo
 The demo uses us-central1 as the region as Cloud deploy is in preview and is available in that region.
 
 All of the YAMLS in the directory and readme are for example pruposes only you will need to add your project details etc to them.
-Note: This only works on a public repo
 
-## Clone the repo: Note: This only works on a public repo
-
-This will be the main working directory for this build out.
-```
-Create a new public repo on github/other code repo.
-git clone https://github.com/untitledteamuk/cloud-deploy-basic-demo && cd cloud-deploy-basic-demo
-git push https://new-repo.git
-remove the old repo: cd .. && rm -rf cloud-deploy-basic-demo
-git clone https://new-repo.git && cd cloud-deploy-basic-demo
-```
 ## Enable the APIS
 ```
 gcloud services enable \
@@ -29,32 +18,46 @@ container.googleapis.com \
 artifactregistry.googleapis.com \
 cloudresourcemanager.googleapis.com \
 cloudkms.googleapis.com \
-binaryauthorization.googleapis.com
+binaryauthorization.googleapis.com \
+sourcerepo.googleapis.com
 ```
-## Create the GKE Clusters:
-### Variables and Default VPC:
-* export PROJECT_NAME=your project name here
+
+## Define Variables
 * export REGION=us-central1
+* export ZONE=us-central1-a
+* export PROJECT_NAME=_Your_Project_ID_
 * export PROJECT_ID=$PROJECT_NAME
 * export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)")"
-* export PROD_CLUSTER=prod-cluster	
+* export PROD_CLUSTER=prod-cluster
 * export DEV_CLUSTER=dev-cluster
 * export PREPROD_CLUSTER=preprod-cluster
 * export REPO_NAME=source-to-prod-demo
-* export KMS_KEY_PROJECT_ID=$PROJECT_ID
-* export KMS_KEYRING_NAME=my-binauthz-keyring
-* export KMS_KEY_NAME=my-binauthz-key
-* export KMS_KEY_LOCATION=global
-* export KMS_KEY_PURPOSE=asymmetric-signing
-* export KMS_KEY_ALGORITHM=ec-sign-p256-sha256
-* export KMS_PROTECTION_LEVEL=software
-* export KMS_KEY_VERSION=1
-* export DEPLOYER_PROJECT_ID=$PROJECT_ID
-* export DEPLOYER_PROJECT_NUMBER="$(gcloud projects describe "${DEPLOYER_PROJECT_ID}" --format="value(projectNumber)")"
-* export ATTESTOR_PROJECT_ID=$PROJECT_ID
-* export ATTESTOR_PROJECT_NUMBER="$(gcloud projects describe "${ATTESTOR_PROJECT_ID}" --format="value(projectNumber)")"
-* export ATTESTOR_NAME=clouddeploy_demo
 * export SHORT_SHA=\${SHORT_SHA}
+* export CSR_REPO_NAME=sstp-container-event
+* export NEW_REPO=https://source.developers.google.com/p/$PROJECT_ID/r/$CSR_REPO_NAME
+
+## Clone the repo: Note: This only works on a public repo
+
+This will be the main working directory for this build out.
+Create a new repo on Cloud Source Repositories.
+```
+gcloud source repos create $CSR_REPO_NAME
+git clone https://github.com/untitledteamuk/cloud-deploy-basic-demo && cd cloud-deploy-basic-demo
+```
+Push to your new repo on Cloud Source Repositories
+```
+git config credential.helper gcloud.sh
+git remote add google $NEW_REPO
+Git push --all google
+```
+
+Delete the current folder and pull the content from your new repo.
+```
+cd .. && rm -rf sstp-container-event
+git clone $NEW_REPO && cd sstp-container-event
+```
+
+## Create the GKE Clusters:
 
 ```
 gcloud compute networks create default //optional if you have the default vpc
@@ -95,7 +98,7 @@ metadata:
 spec:
   containers:
   - name: nginx
-    image: us-central1-docker.pkg.dev/$PROJECT_NAME/$REPO_NAME/nginx:123 //we'll build this later
+    image: $REGION-docker.pkg.dev/$PROJECT_NAME/$REPO_NAME/nginx:123 //we'll build this later
     imagePullPolicy: Always
     ports:
     - containerPort: 80
@@ -184,124 +187,16 @@ gcloud artifacts repositories create $REPO_NAME --repository-format=docker \
 We are going to be using Cloud build for build and push and the SA halready has permissions to access AR.
 
 ## BinAuth
-### Setup KMS
-#### Create Keyring
-```
-gcloud kms keyrings create ${KMS_KEYRING_NAME} \
-  --location ${KMS_KEY_LOCATION}
-```
-#### Create Keys
-```
-gcloud kms keys create ${KMS_KEY_NAME} \
-  --location ${KMS_KEY_LOCATION} \
-  --keyring ${KMS_KEYRING_NAME}  \
-  --purpose ${KMS_KEY_PURPOSE} \
-  --default-algorithm ${KMS_KEY_ALGORITHM} \
-  --protection-level ${KMS_PROTECTION_LEVEL}
-```
-
-### Attestor and Deployer setup
-
-#### Setup service accounts:
-```
-DEPLOYER_SERVICE_ACCOUNT="service-${DEPLOYER_PROJECT_NUMBER}@gcp-sa-binaryauthorization.iam.gserviceaccount.com"
-ATTESTOR_SERVICE_ACCOUNT="service-${ATTESTOR_PROJECT_NUMBER}@gcp-sa-binaryauthorization.iam.gserviceaccount.com"
-```
-
-#### Create analysis note:
-```
-NOTE_ID=clouddeploy_note
-NOTE_URI="projects/${ATTESTOR_PROJECT_ID}/notes/${NOTE_ID}"
-DESCRIPTION="note for clouddeploy demo."
-```
-
-#### Post the note to the container analysis API:
-```
-cat > note_payload.json << EOM
-{
-  "name": "${NOTE_URI}",
-  "attestation": {
-    "hint": {
-      "human_readable_name": "${DESCRIPTION}"
-    }
-  }
-}
-EOM
-
-curl -X POST \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)"  \
-    -H "x-goog-user-project: ${ATTESTOR_PROJECT_ID}" \
-    --data-binary @note_payload.json  \
-    "https://containeranalysis.googleapis.com/v1/projects/${ATTESTOR_PROJECT_ID}/notes/?noteId=${NOTE_ID}"
-```
-#### Confirm this has worked:
-```
-curl \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)"  \
-    -H "x-goog-user-project: ${ATTESTOR_PROJECT_ID}" \
-    "https://containeranalysis.googleapis.com/v1/projects/${ATTESTOR_PROJECT_ID}/notes/"
-```
-
-#### Set IAM permissions on the note:
-```
-cat > iam_request.json << EOM
-{
-  "resource": "${NOTE_URI}",
-  "policy": {
-    "bindings": [
-      {
-        "role": "roles/containeranalysis.notes.occurrences.viewer",
-        "members": [
-          "serviceAccount:${ATTESTOR_SERVICE_ACCOUNT}"
-        ]
-      }
-    ]
-  }
-}
-EOM
-```
-
-#### Set permissions:
-```
-curl -X POST  \
-    -H "Content-Type: application/json" \
-    -H "Authorization: Bearer $(gcloud auth print-access-token)" \
-    -H "x-goog-user-project: ${ATTESTOR_PROJECT_ID}" \
-    --data-binary @iam_request.json \
-    "https://containeranalysis.googleapis.com/v1/projects/${ATTESTOR_PROJECT_ID}/notes/${NOTE_ID}:setIamPolicy"
-```
-#### Create the Attestor:
-```
-gcloud --project="${ATTESTOR_PROJECT_ID}" \
-     container binauthz attestors create "${ATTESTOR_NAME}" \
-    --attestation-authority-note="${NOTE_ID}" \
-    --attestation-authority-note-project="${ATTESTOR_PROJECT_ID}"
-```
-
-#### Add key to attestor
-```
-gcloud --project="${ATTESTOR_PROJECT_ID}" \
-     container binauthz attestors public-keys add \
-    --attestor="${ATTESTOR_NAME}" \
-    --keyversion-project="${KMS_KEY_PROJECT_ID}" \
-    --keyversion-location="${KMS_KEY_LOCATION}" \
-    --keyversion-keyring="${KMS_KEYRING_NAME}" \
-    --keyversion-key="${KMS_KEY_NAME}" \
-    --keyversion="${KMS_KEY_VERSION}"
-```
-#### Verify attestor:
-```    
-gcloud --project="${ATTESTOR_PROJECT_ID}" \
-     container binauthz attestors list
-```
 #### Generate policy yaml.
+
+You can create your own admission policy using the command below however a templated one is provided for the dmeo.
+
 ```
 gcloud container binauthz policy export > admissionpolicy.yaml
 ```
 #### edit admissionpolicy.yaml:
 ```
-cat admissionpolicy.yaml.template | envsubst > admissionpolicy.yaml
+cat admissionpolicy.yaml.template | envsubst > admissionpolicy.yaml && cat admissionpolicy.yaml 
 
 admissionWhitelistPatterns:
 - namePattern: gcr.io/google_containers/*
@@ -313,10 +208,18 @@ defaultAdmissionRule:
   enforcementMode: ENFORCED_BLOCK_AND_AUDIT_LOG
   evaluationMode: REQUIRE_ATTESTATION
   requireAttestationsBy:
-  - projects/$PROJECT_ID/attestors/clouddeploy_demo
+  - projects/$PROJECT_ID/attestors/built-by-cloud-build
 globalPolicyEvaluationMode: ENABLE
 name: projects/$PROJECT_ID/policy
+```
+Cloud Build generates and signs attestations at build time. With Binary Authorization you can use the built-by-cloud-build attestor to verify the attestations and only deploy images built by Cloud Build. The built-by-cloud-build attestor is created the first time you run a build in a project.
 
+```
+gcloud builds submit --pack ^--^image=$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/hello--env=GOOGLE_ENTRYPOINT='java -jar target/myjar.jar',GOOGLE_RUNTIME_VERSION='3.1.301'
+```
+
+Get the GKE Cluster credentials and apply the admission policy to each cluster.
+```
 gcloud container clusters get-credentials $DEV_CLUSTER --region $REGION --project $PROJECT_ID
 gcloud container binauthz policy import admissionpolicy.yaml
 
@@ -331,24 +234,7 @@ gcloud container binauthz policy import admissionpolicy.yaml
 ## CloudBuild
 ### Set the permissions:
 Give the Cloud Build SA the relevant perissions:
-#### Add Binary Authorization Attestor Viewer role to Cloud Build Service Account
-```
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com \
-  --role roles/binaryauthorization.attestorsViewer
-```
-#### Add Cloud KMS CryptoKey Signer/Verifier role to Cloud Build Service Account (KMS-based Signing)
-```
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com \
-  --role roles/cloudkms.signerVerifier
-```
-#### Add Container Analysis Notes Attacher role to Cloud Build Service Account
-```
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-  --member serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com \
-  --role roles/containeranalysis.notes.attacher
-```
+
 #### Add Cloud Deploy and actAs role to Cloud Build Service Account
 ```
 gcloud projects add-iam-policy-binding $PROJECT_ID \
@@ -377,36 +263,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 --member serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com   \
 --role roles/editor
 ```
-### Build Container for BinAuth steps in CloudBuild:
-We need this container to add the attestation step in our final  cloud build pipeline.
-```
-cd binauthz-attestation
 
-cat cloudbuild.yaml.template | envsubst > cloudbuild.yaml
-steps:
-  - id: 'build'
-    name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - '$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/binauthz-attestation:latest'
-      - '.'
-  - id: 'publish'
-    name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - '$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/binauthz-attestation:latest'
-  - id: 'run'
-    name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'run'
-      - '$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/binauthz-attestation:latest'
-      - '--help'
-tags: ['cloud-builders-community']
-
-gcloud builds submit . --config cloudbuild.yaml
-
-```
 ### Build the demo container steps in CloudBuild:
 There is already a Dockerfile and index.html file in the root of the working directory we will use.
 #### Dockerfile.yaml:
@@ -446,7 +303,10 @@ Commercial support is available at
 ```
 #### cloudbuild.yaml:
 ```
-cat cloudbuild.yaml.template | envsubst > cloudbuild.yaml
+cat cloudbuild.yaml.template | envsubst > cloudbuild.yaml && cat cloudbuild.yaml
+```
+Example output do not copy
+```
 steps:
 # Get the short Commit ID from github.
 - name: "gcr.io/cloud-builders/git"
@@ -468,6 +328,7 @@ steps:
 # build the container image
 - name: "gcr.io/cloud-builders/docker"
   args: ["build", "-t", "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}", "."]
+
 # push container image
 - name: "gcr.io/cloud-builders/docker"
   args: ["push", "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}"]
@@ -480,17 +341,7 @@ steps:
        gke-deploy prepare --filename k8s-pod.yaml --image $REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA} --version ${SHORT_SHA}
        cp output/expanded/aggregated-resources.yaml k8s-pod.yaml
 
-# attest the built container
-- name: "$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/binauthz-attestation:latest"
-  args:
-  - '--artifact-url'
-  - '$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}'
-  - '--attestor'
-  - 'projects/$PROJECT_ID/attestors/$ATTESTOR_NAME'
-  - '--keyversion'
-  - 'projects/$PROJECT_ID/locations/global/keyRings/$KMS_KEYRING_NAME/cryptoKeys/$KMS_KEY_NAME/cryptoKeyVersions/$KMS_KEY_VERSION' 
- 
-  # deploy container image to GKE
+# deploy container image to GKE
 - name: "gcr.io/cloud-builders/gcloud"
   entrypoint: 'bash'
   args:
@@ -499,11 +350,20 @@ steps:
        gcloud beta deploy apply --file clouddeploy.yaml --region=$REGION --project=$PROJECT_ID
        gcloud beta deploy releases create nginx-release-${SHORT_SHA} --project=$PROJECT_ID --region=$REGION --delivery-pipeline=my-nginx-app-1
 
+images:
+- “$REGION-docker.pkg.dev/$PROJECT_ID/$REPO_NAME/nginx:${SHORT_SHA}”
+options:
+  requestedVerifyOption: VERIFIED
+
 ```
 
 #### Create a Cloud Build trgger:
 That looks like, only with your repo not mine.
-![image](https://user-images.githubusercontent.com/11318604/136957440-b0c09fd8-7912-4999-bfcc-1bbb261b06d0.png)
+
+![4pTswGeZWcJichu](https://user-images.githubusercontent.com/11318604/155621109-4264c592-de14-4089-813f-13f28fa7da3e.png)
+![5VqHkh9aTpuojZ9](https://user-images.githubusercontent.com/11318604/155621206-bfa20d00-33e4-411b-ad56-de8e8920f816.png)
+
+
 
 #### push to git:
 
