@@ -9,16 +9,6 @@ The demo uses us-central1 as the region as Cloud deploy is in preview and is ava
 All of the YAMLS in the directory and readme are for example pruposes only you will need to add your project details etc to them.
 Note: This only works on a public repo
 
-## Clone the repo: Note: This only works on a public repo
-
-This will be the main working directory for this build out.
-```
-Create a new public repo on github/other code repo.
-git clone https://github.com/untitledteamuk/cloud-deploy-basic-demo && cd cloud-deploy-basic-demo
-git push https://new-repo.git
-remove the old repo: cd .. && rm -rf cloud-deploy-basic-demo
-git clone https://new-repo.git && cd cloud-deploy-basic-demo
-```
 ## Enable the APIS
 ```
 gcloud services enable \
@@ -29,13 +19,14 @@ container.googleapis.com \
 artifactregistry.googleapis.com \
 cloudresourcemanager.googleapis.com \
 cloudkms.googleapis.com \
-binaryauthorization.googleapis.com
+binaryauthorization.googleapis.com \
+sourcerepo.googleapis.com
 ```
-## Create the GKE Clusters:
-### Variables and Default VPC:
+
+## Define Variables
 * export REGION=us-central1
 * export ZONE=us-central1-a
-* export PROJECT_NAME=$(gcloud config get-value project)
+* export PROJECT_NAME=_Your_Project_ID_
 * export PROJECT_ID=$PROJECT_NAME
 * export PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format="value(projectNumber)")"
 * export PROD_CLUSTER=prod-cluster
@@ -46,6 +37,28 @@ binaryauthorization.googleapis.com
 * export CSR_REPO_NAME=sstp-container-event
 * export NEW_REPO=https://source.developers.google.com/p/$PROJECT_ID/r/$CSR_REPO_NAME
 
+## Clone the repo: Note: This only works on a public repo
+
+This will be the main working directory for this build out.
+Create a new repo on Cloud Source Repositories.
+```
+gcloud source repos create $CSR_REPO_NAME
+git clone https://github.com/untitledteamuk/cloud-deploy-basic-demo && cd cloud-deploy-basic-demo
+```
+Push to your new repo on Cloud Source Repositories
+```
+git config credential.helper gcloud.sh
+git remote add google $NEW_REPO
+Git push --all google
+```
+
+Delete the current folder and pull the content from your new repo.
+```
+cd .. && rm -rf sstp-container-event
+git clone $NEW_REPO && cd sstp-container-event
+```
+
+## Create the GKE Clusters:
 
 ```
 gcloud compute networks create default //optional if you have the default vpc
@@ -347,7 +360,11 @@ options:
 
 #### Create a Cloud Build trgger:
 That looks like, only with your repo not mine.
-![image](https://user-images.githubusercontent.com/11318604/136957440-b0c09fd8-7912-4999-bfcc-1bbb261b06d0.png)
+
+![4pTswGeZWcJichu](https://user-images.githubusercontent.com/11318604/155621109-4264c592-de14-4089-813f-13f28fa7da3e.png)
+![5VqHkh9aTpuojZ9](https://user-images.githubusercontent.com/11318604/155621206-bfa20d00-33e4-411b-ad56-de8e8920f816.png)
+
+
 
 #### push to git:
 
