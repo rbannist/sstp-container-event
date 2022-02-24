@@ -23,6 +23,6 @@ export ATTESTOR_PROJECT_NUMBER="$(gcloud projects describe "${ATTESTOR_PROJECT_I
 export ATTESTOR_NAME=clouddeploy_demo
 export SHORT_SHA=\${SHORT_SHA}
 
-gcloud config set compute/region $REGION //sets the default region used for regional services
+gcloud config set compute/region $REGION
 
-gcloud config set compute/zone $ZONE //sets the default Zone for Zonale services.
+gcloud config set compute/zone $ZONE
