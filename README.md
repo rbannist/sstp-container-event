@@ -7,7 +7,6 @@ This is a basic overview demo showing deploying a static website to GKE and expo
 The demo uses us-central1 as the region as Cloud deploy is in preview and is available in that region.
 
 All of the YAMLS in the directory and readme are for example pruposes only you will need to add your project details etc to them.
-Note: This only works on a public repo
 
 ## Enable the APIS
 ```
